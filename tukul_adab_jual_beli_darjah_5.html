@@ -1,0 +1,1544 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tukul Adab: Jual Beli Darjah 5</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Fredoka (Arked Ceria) & Plus Jakarta Sans (Teks Jelas) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+    <!-- MediaPipe Hands & Camera Utils CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+    <style>
+        :root {
+            --font-arcade: 'Fredoka', sans-serif;
+            --font-body: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0f172a;
+            font-family: var(--font-body);
+        }
+
+        .font-arcade {
+            font-family: var(--font-arcade);
+        }
+
+        /* Video Webcam Mirrored Fullscreen */
+        #webcam-video {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            transform: scaleX(-1);
+            z-index: 1;
+        }
+
+        /* Latar Belakang Sandaran Jika Tiada Webcam */
+        #fallback-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: radial-gradient(circle at 50% 30%, #1e3a8a 0%, #0f172a 70%, #020617 100%);
+            z-index: 0;
+        }
+
+        /* Tindihan Vignette supaya UI dan Teks sangat jelas */
+        #vignette-overlay {
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle at center, rgba(15, 23, 42, 0.35) 0%, rgba(15, 23, 42, 0.78) 100%);
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        /* Kanvas Permainan Utama */
+        #game-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10;
+            display: block;
+            touch-action: none;
+        }
+
+        /* Animasi Denyut & Gegaran */
+        @keyframes pulseFast {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.12); }
+        }
+
+        .timer-danger {
+            animation: pulseFast 0.55s infinite ease-in-out;
+            background: linear-gradient(135deg, #ef4444, #b91c1c) !important;
+            border-color: #fca5a5 !important;
+            color: #ffffff !important;
+        }
+
+        @keyframes floatBob {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-6px); }
+        }
+
+        .float-bob {
+            animation: floatBob 2.5s infinite ease-in-out;
+        }
+
+        /* Gaya Butang Arked 3D */
+        .btn-arcade {
+            font-family: var(--font-arcade);
+            transition: all 0.12s cubic-bezier(0.34, 1.56, 0.64, 1);
+            box-shadow: 0 6px 0 rgba(0, 0, 0, 0.35), 0 10px 20px rgba(0, 0, 0, 0.3);
+        }
+        .btn-arcade:hover {
+            transform: translateY(-2px);
+            filter: brightness(1.06);
+        }
+        .btn-arcade:active {
+            transform: translateY(4px);
+            box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+        }
+
+        /* Custom Scrollbar untuk Semakan Jawapan */
+        .custom-scroll::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.4);
+            border-radius: 10px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #f59e0b;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Latar Belakang Sandaran & Webcam -->
+    <div id="fallback-bg"></div>
+    <video id="webcam-video" autoplay playsinline muted></video>
+    <div id="vignette-overlay"></div>
+
+    <!-- Kanvas Arked (Lubang, Sasaran, Tukul Digital, Kesan Zarah) -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- HUD (Heads-Up Display) Semasa Bermain -->
+    <div id="hud-layer" class="fixed inset-x-0 top-0 z-20 pointer-events-none hidden flex-col items-center px-3 pt-2 sm:px-6 sm:pt-3">
+        <!-- Bar Status Atas -->
+        <div class="w-full max-w-6xl flex flex-wrap items-center justify-between gap-2 mb-2 sm:mb-3 pointer-events-auto">
+            <!-- Pemasa 60 Saat -->
+            <div id="timer-box" class="flex items-center gap-2 bg-slate-900/90 border-2 border-amber-400 text-amber-300 px-3.5 py-1.5 sm:px-5 sm:py-2 rounded-2xl shadow-lg backdrop-blur-md">
+                <span class="text-xl sm:text-2xl">⏱️</span>
+                <div>
+                    <div class="text-[10px] uppercase tracking-wider font-bold text-slate-300 leading-none">Masa</div>
+                    <div id="timer-text" class="font-arcade text-xl sm:text-3xl font-bold leading-tight">60s</div>
+                </div>
+            </div>
+
+            <!-- Penunjuk Status Kamera / Kawalan -->
+            <div id="tracking-badge" class="hidden md:flex items-center gap-2 bg-slate-900/85 border border-emerald-400/50 text-emerald-300 px-3.5 py-1.5 rounded-full text-xs font-bold backdrop-blur-md">
+                <span id="tracking-dot" class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+                <span id="tracking-status-text">Menjejak Tapak Tangan...</span>
+            </div>
+
+            <!-- Markah & Kombo & Bunyi -->
+            <div class="flex items-center gap-2 sm:gap-3">
+                <!-- Kombo -->
+                <div id="combo-box" class="flex items-center gap-1.5 bg-gradient-to-r from-purple-700/90 to-indigo-800/90 border-2 border-purple-400 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl shadow-lg backdrop-blur-md transition-transform duration-150">
+                    <span class="text-lg sm:text-2xl">🔥</span>
+                    <div>
+                        <div class="text-[10px] uppercase tracking-wider font-bold text-purple-200 leading-none">Kombo</div>
+                        <div id="combo-text" class="font-arcade text-lg sm:text-2xl font-bold text-yellow-300 leading-tight">x1</div>
+                    </div>
+                </div>
+
+                <!-- Markah -->
+                <div class="flex items-center gap-2 bg-slate-900/90 border-2 border-emerald-400 text-emerald-300 px-3.5 py-1.5 sm:px-5 sm:py-2 rounded-2xl shadow-lg backdrop-blur-md">
+                    <span class="text-xl sm:text-2xl">🪙</span>
+                    <div>
+                        <div class="text-[10px] uppercase tracking-wider font-bold text-slate-300 leading-none">Markah</div>
+                        <div id="score-text" class="font-arcade text-xl sm:text-3xl font-bold text-white leading-tight">0</div>
+                    </div>
+                </div>
+
+                <!-- Butang Bunyi -->
+                <button id="btn-mute" title="Tutup/Buka Bunyi" class="btn-arcade bg-slate-800/90 hover:bg-slate-700 border-2 border-slate-500 text-white w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center text-xl cursor-pointer">
+                    🔊
+                </button>
+            </div>
+        </div>
+
+        <!-- Papan Soalan Utama (Besar & Kontras Tinggi) -->
+        <div id="question-board" class="w-full max-w-4xl bg-gradient-to-b from-amber-50 to-amber-100 border-4 border-amber-500 rounded-3xl px-4 py-3 sm:px-7 sm:py-4 shadow-[0_10px_30px_rgba(0,0,0,0.65)] text-center relative overflow-hidden">
+            <div class="inline-flex items-center gap-1.5 bg-amber-600 text-white text-[11px] sm:text-xs font-extrabold uppercase tracking-wider px-3 py-0.5 rounded-full mb-1 shadow-sm">
+                <span>🕌 Adab Jual Beli • Tahun 5</span>
+                <span id="question-counter" class="bg-amber-800 px-2 py-0.2 rounded-full">Soalan 1</span>
+            </div>
+            <h2 id="question-text" class="font-arcade text-slate-900 text-lg sm:text-2xl md:text-[26px] font-bold leading-snug">
+                Memuatkan soalan...
+            </h2>
+        </div>
+    </div>
+
+    <!-- SKRIN MULA (Start Screen) -->
+    <div id="start-screen" class="fixed inset-0 z-30 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm">
+        <div class="w-full max-w-2xl bg-gradient-to-b from-slate-900 via-slate-900 to-indigo-950 border-4 border-amber-400 rounded-3xl p-6 sm:p-8 text-center shadow-[0_20px_60px_rgba(0,0,0,0.85)] relative overflow-hidden">
+            <!-- Hiasan Corak Bintang Islamik Halus -->
+            <div class="absolute -top-12 -right-12 w-36 h-36 bg-amber-400/10 rounded-full blur-2xl pointer-events-none"></div>
+            <div class="absolute -bottom-12 -left-12 w-36 h-36 bg-emerald-400/10 rounded-full blur-2xl pointer-events-none"></div>
+
+            <div class="inline-block bg-amber-500/20 border border-amber-400/50 text-amber-300 font-bold text-xs sm:text-sm px-4 py-1 rounded-full mb-3">
+                Pendidikan Islam Tahun 5 • KSSR Semakan
+            </div>
+
+            <div class="flex justify-center items-center gap-3 mb-2 float-bob">
+                <span class="text-4xl sm:text-5xl">🔨</span>
+                <h1 class="font-arcade text-3xl sm:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-yellow-200 to-amber-400 drop-shadow">
+                    TUKUL ADAB
+                </h1>
+                <span class="text-4xl sm:text-5xl">⚖️</span>
+            </div>
+            <p class="font-arcade text-lg sm:text-2xl text-emerald-300 font-semibold mb-5">
+                Cabaran Arked Jual Beli Berhemah
+            </p>
+
+            <!-- Kotak Panduan Cara Bermain -->
+            <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4 sm:p-5 text-left mb-6 space-y-3">
+                <h3 class="font-arcade text-amber-300 text-base sm:text-lg flex items-center gap-2">
+                    <span>📖</span> Cara Bermain:
+                </h3>
+                <ul class="text-slate-200 text-xs sm:text-sm space-y-2 font-medium">
+                    <li class="flex items-start gap-2.5">
+                        <span class="text-lg leading-none">✋</span>
+                        <span><strong>Guna Tapak Tangan (Webcam):</strong> Angkat tangan anda di hadapan kamera. Tapak tangan anda menjadi <strong>Tukul Digital</strong>! Gerakkan tangan ke sasaran atau hayun ke bawah untuk mengetuk.</span>
+                    </li>
+                    <li class="flex items-start gap-2.5">
+                        <span class="text-lg leading-none">🖱️</span>
+                        <span><strong>Mod Sandaran Tetikus / Sentuh:</strong> Tiada kamera? Anda juga boleh terus klik atau sentuh sasaran pada skrin!</span>
+                    </li>
+                    <li class="flex items-start gap-2.5">
+                        <span class="text-lg leading-none">🎯</span>
+                        <span><strong>Ketuk Jawapan Betul:</strong> Baca soalan di atas dan ketuk karakter pedagang yang membawa <strong>jawapan betul</strong> dalam masa <strong>60 saat</strong> untuk membina kombo tertinggi!</span>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Status Persediaan Kamera -->
+            <div id="camera-init-msg" class="text-xs text-amber-200/90 mb-4 hidden">
+                ⏳ Sedang menghubungkan kamera & penjejak tangan MediaPipe...
+            </div>
+
+            <button id="btn-start" class="btn-arcade w-full sm:w-auto bg-gradient-to-b from-emerald-400 to-emerald-600 hover:from-emerald-300 hover:to-emerald-500 border-2 border-emerald-200 text-slate-950 font-extrabold text-xl sm:text-2xl px-10 py-4 rounded-2xl cursor-pointer inline-flex items-center justify-center gap-3">
+                <span>▶️</span>
+                <span>MULA BERMAIN</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- SKRIN TAMAT & SEMAKAN JAWAPAN (End & Review Screen) -->
+    <div id="end-screen" class="fixed inset-0 z-30 hidden items-center justify-center p-3 sm:p-5 bg-slate-950/85 backdrop-blur-md">
+        <div class="w-full max-w-4xl max-h-[92vh] flex flex-col bg-gradient-to-b from-slate-900 to-slate-950 border-4 border-amber-400 rounded-3xl p-5 sm:p-7 shadow-2xl overflow-hidden">
+            
+            <!-- Bahagian Atas: Keputusan & Pangkat -->
+            <div class="text-center border-b border-slate-700/80 pb-4 mb-4 shrink-0">
+                <div class="inline-block bg-amber-500/20 border border-amber-400 text-amber-300 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full mb-1">
+                    Masa Tamat! Keputusan Pusingan
+                </div>
+                <h2 id="rank-title" class="font-arcade text-2xl sm:text-4xl font-bold text-amber-300 mb-3">
+                    🏆 Saudagar Berhemah
+                </h2>
+
+                <!-- Grid Statistik -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4 max-w-2xl mx-auto">
+                    <div class="bg-slate-800/90 border border-emerald-500/40 rounded-2xl p-2.5">
+                        <div class="text-[11px] text-slate-400 font-bold uppercase">Markah Akhir</div>
+                        <div id="final-score" class="font-arcade text-2xl sm:text-3xl font-bold text-emerald-400">0</div>
+                    </div>
+                    <div class="bg-slate-800/90 border border-purple-500/40 rounded-2xl p-2.5">
+                        <div class="text-[11px] text-slate-400 font-bold uppercase">Kombo Tertinggi</div>
+                        <div id="final-combo" class="font-arcade text-2xl sm:text-3xl font-bold text-purple-300">x1</div>
+                    </div>
+                    <div class="bg-slate-800/90 border border-sky-500/40 rounded-2xl p-2.5">
+                        <div class="text-[11px] text-slate-400 font-bold uppercase">Jawapan Betul</div>
+                        <div id="final-correct" class="font-arcade text-2xl sm:text-3xl font-bold text-sky-400">0</div>
+                    </div>
+                    <div class="bg-slate-800/90 border border-rose-500/40 rounded-2xl p-2.5">
+                        <div class="text-[11px] text-slate-400 font-bold uppercase">Kurang Tepat</div>
+                        <div id="final-wrong" class="font-arcade text-2xl sm:text-3xl font-bold text-rose-400">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bahagian Tengah: Semakan Jawapan (Scrollable) -->
+            <div class="flex-1 flex flex-col min-h-0 mb-4">
+                <h3 class="font-arcade text-lg sm:text-xl text-amber-200 mb-2 flex items-center gap-2 shrink-0">
+                    <span>📋</span> Semakan Jawapan & Nota Adab Jual Beli:
+                </h3>
+                <div id="review-list" class="flex-1 overflow-y-auto custom-scroll space-y-2.5 pr-1">
+                    <!-- Item semakan akan dijana secara dinamik di sini -->
+                </div>
+            </div>
+
+            <!-- Bahagian Bawah: Butang Main Semula -->
+            <div class="text-center shrink-0 pt-1">
+                <button id="btn-restart" class="btn-arcade bg-gradient-to-b from-amber-400 to-amber-600 hover:from-amber-300 hover:to-amber-500 border-2 border-amber-200 text-slate-950 font-extrabold text-lg sm:text-xl px-8 py-3.5 rounded-2xl cursor-pointer inline-flex items-center gap-2.5">
+                    <span>🔄</span>
+                    <span>MAIN SEMULA</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * ============================================================================
+         * 1. BANK SOALAN PENDIDIKAN ISLAM TAHUN 5 (KSSR SEMAKAN) - ADAB JUAL BELI
+         * ============================================================================
+         */
+        const QUESTION_BANK = [
+            {
+                q: "Apakah hukum asal jual beli dalam Islam?",
+                correct: "Harus",
+                distractors: ["Wajib", "Makruh", "Haram"],
+                note: "Hukum asal jual beli ialah Harus berdasarkan firman Allah SWT yang menghalalkan jual beli dan mengharamkan riba."
+            },
+            {
+                q: "Antara berikut, yang manakah BUKAN rukun jual beli?",
+                correct: "Saksi",
+                distractors: ["Penjual & Pembeli", "Barang", "Akad (Ijab & Qabul)"],
+                note: "Rukun jual beli ada 4: Penjual & Pembeli, Barang yang dijual, Harga/Bayaran, dan Akad (Ijab & Qabul)."
+            },
+            {
+                q: "Apakah maksud 'Ijab' dalam akad jual beli?",
+                correct: "Tawaran penjual",
+                distractors: ["Penerimaan pembeli", "Menawar harga", "Membayar tunai"],
+                note: "Ijab ialah lafaz tawaran daripada penjual (contoh: 'Saya jual barang ini dengan harga RM5')."
+            },
+            {
+                q: "Apakah maksud 'Qabul' dalam akad jual beli?",
+                correct: "Penerimaan pembeli",
+                distractors: ["Tawaran penjual", "Memulangkan barang", "Menyimpan stok"],
+                note: "Qabul ialah lafaz persetujuan atau penerimaan daripada pembeli (contoh: 'Saya beli barang ini')."
+            },
+            {
+                q: "Apakah hukum menipu sukatan dan timbangan dalam perniagaan?",
+                correct: "Haram & Berdosa",
+                distractors: ["Makruh", "Harus jika untung", "Sunat"],
+                note: "Mengurangkan timbangan atau sukatan adalah haram dan mendapat ancaman azab daripada Allah SWT (Surah al-Mutaffifin)."
+            },
+            {
+                q: "Perbuatan menyorok barang keperluan supaya harga naik dipanggil...",
+                correct: "Ihtikar",
+                distractors: ["Tawakal", "Sedekah", "Qanaah"],
+                note: "Ihtikar (monopoli/menyorok barang) dilarang keras dalam Islam kerana menzalimi pengguna."
+            },
+            {
+                q: "Apakah sifat utama yang wajib ada pada seorang peniaga Muslim?",
+                correct: "Jujur & Amanah",
+                distractors: ["Sombong", "Kedekut", "Tamak haloba"],
+                note: "Rasulullah SAW bersabda peniaga yang jujur dan amanah akan bersama para nabi, siddiqin dan syuhada."
+            },
+            {
+                q: "Bagaimanakah adab penjual jika barang yang dijual mempunyai kecacatan?",
+                correct: "Berterus terang",
+                distractors: ["Sorokkan kecacatan", "Jual harga mahal", "Paksa pembeli beli"],
+                note: "Penjual wajib memberitahu kecacatan atau keaiban barang kepada pembeli dengan jujur sebelum akad."
+            },
+            {
+                q: "Apakah hukum jual beli barang yang haram seperti arak dan bangkai?",
+                correct: "Tidak Sah (Haram)",
+                distractors: ["Sah tetapi makruh", "Harus", "Sunat"],
+                note: "Syarat barang yang dijual mestilah suci, bermanfaat, dan halal di sisi syarak."
+            },
+            {
+                q: "Apakah unsur penipuan atau ketidakpastian dalam jual beli yang dilarang?",
+                correct: "Gharar",
+                distractors: ["Ihsan", "Mahabbah", "Syukur"],
+                note: "Gharar bermaksud ketidakjelasan atau penipuan pada barang, harga atau akad yang boleh membawa pertelingkahan."
+            },
+            {
+                q: "Apakah adab pembeli ketika berurusan dengan penjual di kedai?",
+                correct: "Bercakap sopan",
+                distractors: ["Menengking penjual", "Merendahkan barang", "Merosakkan barang"],
+                note: "Pembeli hendaklah berbahasa sopan, bermanis muka, dan tidak menghina barang jualan peniaga."
+            },
+            {
+                q: "Mengapakah Islam melarang unsur Riba dalam jual beli dan hutang?",
+                correct: "Menindas orang lain",
+                distractors: ["Menguntungkan semua", "Cepat kaya", "Sunnah nabi"],
+                note: "Riba diharamkan kerana ia menindas golongan memerlukan dan menghapuskan keberkatan harta."
+            },
+            {
+                q: "Apakah kelebihan mengamalkan adab jual beli dalam masyarakat?",
+                correct: "Diberkati Allah",
+                distractors: ["Dibenci rakan", "Perniagaan rugi", "Berlaku pergaduhan"],
+                note: "Jual beli yang beradab mendatangkan keberkatan rezeki, keredaan Allah, dan keharmonian masyarakat."
+            },
+            {
+                q: "Bolehkah kanak-kanak mumayyiz membeli barang keperluan kecil yang murah?",
+                correct: "Boleh / Sah",
+                distractors: ["Haram sama sekali", "Berdosa besar", "Wajib ada peguam"],
+                note: "Menurut ulama, kanak-kanak mumayyiz dibenarkan berjual beli barang kecil yang nilainya sedikit (mu'atah)."
+            },
+            {
+                q: "Apakah maksud jual beli secara 'Mu'atah'?",
+                correct: "Beli tanpa lafaz akad",
+                distractors: ["Beli secara hutang", "Beli barang curi", "Tukar barang rosak"],
+                note: "Jual beli Mu'atah ialah urus niaga secara saling memberi barang dan bayaran tanpa lafaz akad (seperti di pasar raya)."
+            },
+            {
+                q: "Apakah tindakan terbaik jika penjual tersilap memulangkan wang baki berlebihan?",
+                correct: "Pulangkan semula",
+                distractors: ["Simpan diam-diam", "Belanja kawan", "Anggap rezeki"],
+                note: "Pembeli yang beramanah wajib memulangkan wang baki yang berlebihan kerana itu bukan haknya."
+            },
+            {
+                q: "Manakah antara berikut contoh jual beli yang TIDAK SAH?",
+                correct: "Jual ikan di laut",
+                distractors: ["Jual buku tulis", "Jual buah epal", "Jual baju sekolah"],
+                note: "Menjual ikan yang masih bebas di laut tidak sah kerana barang tidak dapat diserahkan (gharar)."
+            },
+            {
+                q: "Apakah adab peniaga apabila pembeli ingin menawar harga barang?",
+                correct: "Bertolak ansur",
+                distractors: ["Marah & menghalau", "Menipu harga asal", "Mengejek pembeli"],
+                note: "Rasulullah SAW mendoakan rahmat Allah kepada orang yang bertolak ansur ketika menjual dan membeli."
+            },
+            {
+                q: "Sebelum membeli makanan berbungkus, pembeli digalakkan memeriksa...",
+                correct: "Logo Halal & tarikh",
+                distractors: ["Warna plastik sahaja", "Nama lori penghantar", "Harga paling mahal"],
+                note: "Memastikan status Halal dan tarikh luput adalah tanggungjawab pembeli Muslim untuk menjaga kesihatan dan ibadat."
+            },
+            {
+                q: "Apakah akibat jika peniaga suka bersumpah palsu untuk melariskan barang?",
+                correct: "Hilang keberkatan",
+                distractors: ["Bertambah pahala", "Disayangi malaikat", "Rezeki melimpah"],
+                note: "Sumpah palsu dalam perniagaan mungkin melariskan jualan sementara tetapi menghapuskan keberkatan."
+            }
+        ];
+
+        /**
+         * ============================================================================
+         * 2. SISTEM AUDIO INTERAKTIF SINTETIK (WEB AUDIO API - TIADA FAIL LUAR)
+         * ============================================================================
+         */
+        class SoundFX {
+            constructor() {
+                this.ctx = null;
+                this.muted = false;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    this.ctx = new AudioContext();
+                }
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            }
+
+            toggleMute() {
+                this.muted = !this.muted;
+                return this.muted;
+            }
+
+            // Bunyi hayunan tukul (whoosh)
+            playSwing() {
+                if (this.muted || !this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(320, now);
+                osc.frequency.exponentialRampToValueAtTime(90, now + 0.14);
+
+                gain.gain.setValueAtTime(0.18, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.15);
+            }
+
+            // Bunyi hentakan kartun 'Bonk!'
+            playBonk() {
+                if (this.muted || !this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(190, now);
+                osc.frequency.exponentialRampToValueAtTime(55, now + 0.18);
+
+                gain.gain.setValueAtTime(0.35, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.19);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.2);
+            }
+
+            // Bunyi jawapan BETUL ('Ding-Dong!' ceria meningkat ikut kombo)
+            playCorrect(combo = 1) {
+                if (this.muted || !this.ctx) return;
+                this.playBonk();
+                const now = this.ctx.currentTime;
+                const pitchBoost = Math.min(combo * 25, 250);
+                const notes = [523.25 + pitchBoost, 659.25 + pitchBoost, 783.99 + pitchBoost, 1046.50 + pitchBoost];
+
+                notes.forEach((freq, idx) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sine';
+                    const start = now + idx * 0.055;
+                    osc.frequency.setValueAtTime(freq, start);
+
+                    gain.gain.setValueAtTime(0.22, start);
+                    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.28);
+
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(start);
+                    osc.stop(start + 0.3);
+                });
+            }
+
+            // Bunyi jawapan SALAH ('Boing / Buzz' kartun)
+            playWrong() {
+                if (this.muted || !this.ctx) return;
+                this.playBonk();
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(165, now);
+                osc.frequency.linearRampToValueAtTime(110, now + 0.18);
+                osc.frequency.linearRampToValueAtTime(95, now + 0.38);
+
+                gain.gain.setValueAtTime(0.24, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.42);
+            }
+
+            // Bunyi detik amaran 10 saat terakhir
+            playTick() {
+                if (this.muted || !this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(880, now);
+                gain.gain.setValueAtTime(0.08, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.07);
+            }
+
+            // Bunyi tamat permainan
+            playGameOver() {
+                if (this.muted || !this.ctx) return;
+                const now = this.ctx.currentTime;
+                const melody = [523.25, 659.25, 783.99, 659.25, 1046.50];
+                melody.forEach((freq, i) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'triangle';
+                    const t = now + i * 0.12;
+                    osc.frequency.setValueAtTime(freq, t);
+                    gain.gain.setValueAtTime(0.25, t);
+                    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(t);
+                    osc.stop(t + 0.38);
+                });
+            }
+        }
+
+        const sfx = new SoundFX();
+
+        /**
+         * ============================================================================
+         * 3. PEMBOLEHUBAH KEADAAN PERMAINAN (GAME STATE)
+         * ============================================================================
+         */
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const videoEl = document.getElementById('webcam-video');
+
+        let width = window.innerWidth;
+        let height = window.innerHeight;
+
+        const GAME_DURATION = 60;
+        let gameState = 'START'; // 'START', 'PLAYING', 'END'
+        let timeLeft = GAME_DURATION;
+        let timerInterval = null;
+
+        let score = 0;
+        let combo = 1;
+        let maxCombo = 1;
+        let correctCount = 0;
+        let wrongCount = 0;
+
+        // Pengurusan Soalan & Rekod Semakan
+        let shuffledQuestions = [];
+        let currentQuestionIndex = 0;
+        let currentQuestion = null;
+        let sessionHistory = []; // Menyimpan { question, playerAnswer, correctAnswer, isCorrect, note }
+        let currentQuestionMistakes = []; // Elak rekod berulang jika salah berkali-kali pada soalan sama
+
+        // Lubang & Sasaran (6 lubang susunan 3x2 yang responsif dan luas)
+        const HOLE_COUNT = 6;
+        let holes = [];
+
+        // Penjejakan Tangan & Tukul Digital
+        let handDetected = false;
+        let hammer = {
+            x: width / 2,
+            y: height / 2,
+            prevY: height / 2,
+            vy: 0,
+            angle: -0.35,        // Sudut sedia tukul
+            targetAngle: -0.35,
+            swingTimer: 0,       // Animasi menghentam
+            hitCooldown: 0,      // Elak double-hit dalam satu ayunan
+            scale: 1
+        };
+
+        // Kesan Visual (Zarah Bintang, Teks Terapung, Gegaran Skrin)
+        let particles = [];
+        let floatingTexts = [];
+        let screenShake = 0;
+
+        // Emoji Karakter Pedagang Comel untuk Sasaran
+        const MERCHANT_AVATARS = ['👳‍♂️', '🧕', '🧔', '👩🏻‍💼', '👨🏻‍🍳', '🧕🏽'];
+
+        /**
+         * ============================================================================
+         * 4. PENYEDIAAN KANVAS & SUSUN ATUR LUBANG RESPONSIF
+         * ============================================================================
+         */
+        function resizeCanvas() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            layoutHoles();
+        }
+
+        function layoutHoles() {
+            // Susunan 3 lajur x 2 baris di bahagian bawah-tengah skrin (di bawah papan soalan)
+            const cols = width < 640 ? 2 : 3;
+            const rows = width < 640 ? 3 : 2;
+
+            const topMargin = Math.max(195, height * 0.30);
+            const bottomMargin = Math.max(35, height * 0.06);
+            const sideMargin = Math.max(40, width * 0.08);
+
+            const usableW = width - sideMargin * 2;
+            const usableH = height - topMargin - bottomMargin;
+
+            const cellW = usableW / cols;
+            const cellH = usableH / rows;
+
+            const holeRx = Math.min(cellW * 0.40, 115);
+            const holeRy = Math.min(holeRx * 0.34, 40);
+
+            if (holes.length !== HOLE_COUNT) {
+                holes = Array.from({ length: HOLE_COUNT }, (_, i) => ({
+                    id: i,
+                    x: 0,
+                    y: 0,
+                    rx: holeRx,
+                    ry: holeRy,
+                    // Keadaan sasaran dalam lubang
+                    active: false,
+                    popProgress: 0,      // 0 = tersembunyi, 1 = keluar penuh
+                    state: 'HIDDEN',     // 'HIDDEN', 'RISING', 'STAYING', 'FALLING', 'WHACKED'
+                    stayTimer: 0,
+                    text: '',
+                    isCorrect: false,
+                    avatar: MERCHANT_AVATARS[i % MERCHANT_AVATARS.length],
+                    whackResult: null    // 'CORRECT' atau 'WRONG'
+                }));
+            }
+
+            for (let i = 0; i < HOLE_COUNT; i++) {
+                const r = Math.floor(i / cols);
+                const c = i % cols;
+                holes[i].x = sideMargin + cellW * (c + 0.5);
+                holes[i].y = topMargin + cellH * (r + 0.72);
+                holes[i].rx = holeRx;
+                holes[i].ry = holeRy;
+            }
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        /**
+         * ============================================================================
+         * 5. GOOGLE MEDIAPIPE HANDS (PENJEJAKAN TAPAK TANGAN) + SANDARAN TETIKUS
+         * ============================================================================
+         */
+        let mediaPipeInitialized = false;
+
+        async function initMediaPipeHands() {
+            if (mediaPipeInitialized) return;
+            const statusText = document.getElementById('tracking-status-text');
+            const statusDot = document.getElementById('tracking-dot');
+            const camMsg = document.getElementById('camera-init-msg');
+
+            camMsg.classList.remove('hidden');
+
+            try {
+                if (typeof Hands === 'undefined') {
+                    throw new Error("Pustaka MediaPipe Hands tidak dimuatkan.");
+                }
+
+                const hands = new Hands({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+                });
+
+                hands.setOptions({
+                    maxNumHands: 1,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.65,
+                    minTrackingConfidence: 0.6
+                });
+
+                hands.onResults((results) => {
+                    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                        handDetected = true;
+                        const landmarks = results.multiHandLandmarks[0];
+                        // Landmark 9 ialah Middle Finger MCP (tengah tapak tangan yang sangat stabil)
+                        const palm = landmarks[9];
+                        // Cerminkan koordinat X kerana video dipaparkan secara mirrored
+                        const targetX = (1 - palm.x) * width;
+                        const targetY = palm.y * height;
+
+                        // Pelicinan pergerakan tukul (Lerp)
+                        hammer.prevY = hammer.y;
+                        hammer.x += (targetX - hammer.x) * 0.45;
+                        hammer.y += (targetY - hammer.y) * 0.45;
+                        hammer.vy = hammer.y - hammer.prevY;
+
+                        if (statusText) statusText.textContent = "Tapak Tangan Dikesan! ✋";
+                        if (statusDot) statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400";
+
+                        // Kesan hentakan automatik apabila tangan menyentuh sasaran atau bergerak laju ke bawah
+                        if (gameState === 'PLAYING') {
+                            checkHammerCollision(hammer.vy > 14);
+                        }
+                    } else {
+                        handDetected = false;
+                        if (statusText) statusText.textContent = "Angkat Tangan ke Kamera / Guna Tetikus";
+                        if (statusDot) statusDot.className = "w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse";
+                    }
+                });
+
+                // Akses Webcam Pengguna
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+                    audio: false
+                });
+                videoEl.srcObject = stream;
+                await videoEl.play();
+
+                mediaPipeInitialized = true;
+                camMsg.classList.add('hidden');
+
+                // Gelung pemprosesan frame video yang stabil dengan requestAnimationFrame
+                async function processVideoFrame() {
+                    if (videoEl.readyState >= 2) {
+                        await hands.send({ image: videoEl });
+                    }
+                    requestAnimationFrame(processVideoFrame);
+                }
+                requestAnimationFrame(processVideoFrame);
+
+            } catch (err) {
+                console.warn("Kamera tidak tersedia atau kebenaran ditolak. Mod sandaran tetikus/sentuh aktif.", err);
+                camMsg.classList.add('hidden');
+                videoEl.style.display = 'none';
+                if (statusText) statusText.textContent = "Mod Tetikus / Sentuh Aktif 🖱️";
+                if (statusDot) statusDot.className = "w-2.5 h-2.5 rounded-full bg-sky-400";
+            }
+        }
+
+        // Kawalan Sandaran Tetikus & Skrin Sentuh (Sentiasa aktif bersama webcam)
+        function handlePointerMove(clientX, clientY) {
+            if (handDetected) return; // Utamakan tangan jika dikesan
+            hammer.prevY = hammer.y;
+            hammer.x = clientX;
+            hammer.y = clientY;
+        }
+
+        function handlePointerHit(clientX, clientY) {
+            hammer.x = clientX;
+            hammer.y = clientY;
+            triggerHammerSwing();
+            if (gameState === 'PLAYING') {
+                checkHammerCollision(true);
+            }
+        }
+
+        window.addEventListener('mousemove', (e) => handlePointerMove(e.clientX, e.clientY));
+        canvas.addEventListener('mousedown', (e) => handlePointerHit(e.clientX, e.clientY));
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 0) {
+                const t = e.touches[0];
+                handlePointerHit(t.clientX, t.clientY);
+            }
+        }, { passive: true });
+        canvas.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                const t = e.touches[0];
+                handlePointerMove(t.clientX, t.clientY);
+            }
+        }, { passive: true });
+
+        /**
+         * ============================================================================
+         * 6. LOGIK SOALAN, SASARAN (WHACK-A-MOLE) & PERLANGGARAN
+         * ============================================================================
+         */
+        function shuffleArray(arr) {
+            const copy = [...arr];
+            for (let i = copy.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [copy[i], copy[j]] = [copy[j], copy[i]];
+            }
+            return copy;
+        }
+
+        function loadNextQuestion() {
+            if (currentQuestionIndex >= shuffledQuestions.length) {
+                shuffledQuestions = shuffleArray(QUESTION_BANK);
+                currentQuestionIndex = 0;
+            }
+            currentQuestion = shuffledQuestions[currentQuestionIndex];
+            currentQuestionIndex++;
+            currentQuestionMistakes = [];
+
+            // Kemas kini UI Papan Soalan
+            const qBoard = document.getElementById('question-board');
+            document.getElementById('question-text').textContent = currentQuestion.q;
+            document.getElementById('question-counter').textContent = `Soalan ${sessionHistory.length + 1}`;
+
+            // Animasi segar papan soalan
+            qBoard.style.transform = 'scale(0.95)';
+            setTimeout(() => { qBoard.style.transform = 'scale(1)'; }, 120);
+
+            // Sorokkan semua sasaran lama sebelum memunculkan pilihan jawapan baharu
+            holes.forEach(h => {
+                h.active = false;
+                h.state = 'HIDDEN';
+                h.popProgress = 0;
+                h.whackResult = null;
+            });
+
+            spawnWaveForCurrentQuestion();
+        }
+
+        function spawnWaveForCurrentQuestion() {
+            if (!currentQuestion || gameState !== 'PLAYING') return;
+
+            // Pilih 3 atau 4 lubang secara rawak untuk muncul serentak
+            const numToSpawn = width < 640 ? 3 : 4;
+            const availableIndices = shuffleArray([0, 1, 2, 3, 4, 5]).slice(0, numToSpawn);
+
+            // Sediakan pilihan jawapan: 1 BETUL + selebihnya SALAH
+            const wrongChoices = shuffleArray(currentQuestion.distractors).slice(0, numToSpawn - 1);
+            const options = shuffleArray([
+                { text: currentQuestion.correct, isCorrect: true },
+                ...wrongChoices.map(w => ({ text: w, isCorrect: false }))
+            ]);
+
+            availableIndices.forEach((holeIdx, i) => {
+                const h = holes[holeIdx];
+                h.active = true;
+                h.state = 'RISING';
+                h.popProgress = 0.05;
+                h.stayTimer = 3.2 + Math.random() * 1.2; // Kekal sekitar 3.2 - 4.4 saat sebelum masuk semula
+                h.text = options[i].text;
+                h.isCorrect = options[i].isCorrect;
+                h.avatar = MERCHANT_AVATARS[Math.floor(Math.random() * MERCHANT_AVATARS.length)];
+                h.whackResult = null;
+            });
+        }
+
+        function triggerHammerSwing() {
+            hammer.swingTimer = 0.22; // saat animasi hentakan
+            sfx.playSwing();
+        }
+
+        function checkHammerCollision(forceSwing = false) {
+            if (hammer.hitCooldown > 0) return;
+
+            // Kepala tukul berada sedikit di atas-kiri titik pegangan tapak tangan
+            const headX = hammer.x - 15;
+            const headY = hammer.y - 15;
+
+            for (let i = 0; i < holes.length; i++) {
+                const h = holes[i];
+                if (!h.active || h.state === 'HIDDEN' || h.state === 'WHACKED' || h.popProgress < 0.35) continue;
+
+                // Hitung kotak sasaran yang muncul dari lubang
+                const targetHeight = h.rx * 1.35 * h.popProgress;
+                const targetCenterY = h.y - targetHeight * 0.55;
+                const hitRadiusX = h.rx * 0.95;
+                const hitRadiusY = Math.max(55, targetHeight * 0.65);
+
+                const dx = Math.abs(headX - h.x);
+                const dy = Math.abs(headY - targetCenterY);
+
+                if (dx < hitRadiusX && dy < hitRadiusY) {
+                    // Tukul menyentuh sasaran!
+                    triggerHammerSwing();
+                    hammer.hitCooldown = 0.38; // Elak ketukan berganda tidak sengaja
+                    handleTargetHit(h);
+                    break;
+                }
+            }
+        }
+
+        function handleTargetHit(hole) {
+            hole.state = 'WHACKED';
+
+            if (hole.isCorrect) {
+                // JAWAPAN BETUL!
+                hole.whackResult = 'CORRECT';
+                const pointsEarned = 100 * combo;
+                score += pointsEarned;
+                correctCount++;
+
+                sfx.playCorrect(combo);
+                screenShake = 8;
+
+                // Kesan zarah emas & bintang
+                spawnParticles(hole.x, hole.y - 60, '#fbbf24', 24);
+                spawnParticles(hole.x, hole.y - 60, '#34d399', 14);
+                spawnFloatingText(hole.x, hole.y - 90, `BETUL! +${pointsEarned}`, '#4ade80');
+
+                // Rekod ke dalam sejarah semakan jawapan
+                sessionHistory.push({
+                    question: currentQuestion.q,
+                    playerAnswer: hole.text,
+                    correctAnswer: currentQuestion.correct,
+                    isCorrect: true,
+                    note: currentQuestion.note
+                });
+
+                // Tingkatkan kombo
+                combo++;
+                if (combo > maxCombo) maxCombo = combo;
+                updateHUD();
+
+                // Terus tukar ke soalan seterusnya selepas jeda animasi singkat
+                setTimeout(() => {
+                    if (gameState === 'PLAYING') loadNextQuestion();
+                }, 420);
+
+            } else {
+                // JAWAPAN SALAH!
+                hole.whackResult = 'WRONG';
+                score = Math.max(0, score - 25);
+                wrongCount++;
+                combo = 1; // Reset kombo
+
+                sfx.playWrong();
+                screenShake = 12;
+
+                // Kesan zarah merah
+                spawnParticles(hole.x, hole.y - 60, '#f43f5e', 20);
+                spawnFloatingText(hole.x, hole.y - 90, `SALAH! -25`, '#fb7185');
+
+                // Rekod kesilapan (jika belum direkodkan untuk soalan ini)
+                if (!currentQuestionMistakes.includes(hole.text)) {
+                    currentQuestionMistakes.push(hole.text);
+                    sessionHistory.push({
+                        question: currentQuestion.q,
+                        playerAnswer: hole.text,
+                        correctAnswer: currentQuestion.correct,
+                        isCorrect: false,
+                        note: currentQuestion.note
+                    });
+                }
+
+                updateHUD();
+            }
+        }
+
+        /**
+         * ============================================================================
+         * 7. KESAN ZARAH (PARTICLES) & TEKS TERAPUNG
+         * ============================================================================
+         */
+        function spawnParticles(x, y, color, count) {
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 3 + Math.random() * 8;
+                particles.push({
+                    x,
+                    y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed - 3,
+                    size: 5 + Math.random() * 7,
+                    color,
+                    alpha: 1,
+                    isStar: Math.random() > 0.4
+                });
+            }
+        }
+
+        function spawnFloatingText(x, y, text, color) {
+            floatingTexts.push({
+                x,
+                y,
+                vy: -2.5,
+                text,
+                color,
+                alpha: 1,
+                scale: 0.5
+            });
+        }
+
+        /**
+         * ============================================================================
+         * 8. LUKISAN GRAFIK KANVAS (LUBANG PASAR, KARAKTER SASARAN, TUKUL DIGITAL)
+         * ============================================================================
+         */
+        function drawRoundedRect(ctx, x, y, w, h, r) {
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + w - r, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+            ctx.lineTo(x + w, y + h - r);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            ctx.lineTo(x + r, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+            ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y);
+            ctx.closePath();
+        }
+
+        function drawHoleAndTarget(hole) {
+            const { x, y, rx, ry, popProgress, text, avatar, whackResult } = hole;
+
+            // 1. Bayang Meja / Tapak Gerai Kayu di sekeliling lubang
+            ctx.save();
+            ctx.beginPath();
+            ctx.ellipse(x, y + 6, rx * 1.14, ry * 1.25, 0, 0, Math.PI * 2);
+            ctx.fillStyle = '#78350f'; // Coklat kayu gelap
+            ctx.fill();
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = '#d97706'; // Bingkai emas/kayu cerah
+            ctx.stroke();
+
+            // 2. Dalam Lubang Gelap
+            ctx.beginPath();
+            ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+            const holeGrad = ctx.createRadialGradient(x, y - 5, rx * 0.1, x, y, rx);
+            holeGrad.addColorStop(0, '#020617');
+            holeGrad.addColorStop(1, '#1e1b18');
+            ctx.fillStyle = holeGrad;
+            ctx.fill();
+            ctx.restore();
+
+            // 3. Lukis Sasaran (Pedagang + Papan Jawapan) dengan Clipping supaya muncul dari dalam lubang
+            if (popProgress > 0.01) {
+                ctx.save();
+                // Kawasan potongan di atas garis tengah lubang
+                ctx.beginPath();
+                ctx.rect(x - rx * 1.4, y - 320, rx * 2.8, 320 + ry * 0.35);
+                ctx.clip();
+
+                const maxRise = Math.min(135, rx * 1.35);
+                const riseY = y + 25 - (maxRise * popProgress);
+
+                // Badan / Karakter Pedagang Comel
+                const bodyW = rx * 1.25;
+                const bodyH = maxRise * 0.95;
+
+                // Warna kapsul berdasarkan status hentakan
+                let cardFill = '#ffffff';
+                let cardBorder = '#f59e0b';
+                let textColor = '#0f172a';
+
+                if (whackResult === 'CORRECT') {
+                    cardFill = '#10b981';
+                    cardBorder = '#a7f3d0';
+                    textColor = '#ffffff';
+                } else if (whackResult === 'WRONG') {
+                    cardFill = '#ef4444';
+                    cardBorder = '#fecdd3';
+                    textColor = '#ffffff';
+                }
+
+                // Lukis Karakter Avatar di atas papan jawapan
+                ctx.font = `${Math.round(rx * 0.56)}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const wobble = whackResult === 'WRONG' ? Math.sin(Date.now() * 0.05) * 8 : 0;
+                ctx.fillText(whackResult === 'CORRECT' ? '🤩' : (whackResult === 'WRONG' ? '😵' : avatar), x + wobble, riseY - bodyH * 0.52);
+
+                // Papan Jawapan Kontras Tinggi yang dipegang karakter
+                const boardW = Math.max(135, rx * 1.85);
+                const boardH = Math.max(54, rx * 0.62);
+                const boardX = x - boardW / 2 + wobble;
+                const boardY = riseY - boardH * 0.25;
+
+                // Bayang papan jawapan
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+                drawRoundedRect(ctx, boardX, boardY + 5, boardW, boardH, 16);
+                ctx.fill();
+
+                // Latar papan jawapan
+                ctx.fillStyle = cardFill;
+                drawRoundedRect(ctx, boardX, boardY, boardW, boardH, 16);
+                ctx.fill();
+
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = cardBorder;
+                ctx.stroke();
+
+                // Teks Jawapan (Besar, Tebal, Mudah Dibaca dari Jauh)
+                ctx.fillStyle = textColor;
+                const fontSize = Math.max(15, Math.min(21, Math.round(boardW / 9.2)));
+                ctx.font = `800 ${fontSize}px "Plus Jakarta Sans", sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+
+                // Pembalut teks (word wrap) jika jawapan panjang
+                wrapCanvasText(ctx, text, x + wobble, boardY + boardH / 2, boardW - 18, fontSize + 3);
+
+                // Tanda Pangkah Merah Besar jika salah
+                if (whackResult === 'WRONG') {
+                    ctx.font = 'bold 54px sans-serif';
+                    ctx.fillText('❌', x, riseY - 25);
+                }
+
+                ctx.restore();
+            }
+
+            // 4. Bibir Depan Lubang (Supaya sasaran nampak keluar dari dalam lubang)
+            ctx.save();
+            ctx.beginPath();
+            ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI);
+            ctx.lineWidth = 6;
+            ctx.strokeStyle = '#f59e0b';
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+            const words = text.split(' ');
+            let lines = [];
+            let currentLine = words[0];
+
+            for (let i = 1; i < words.length; i++) {
+                const testLine = currentLine + ' ' + words[i];
+                if (ctx.measureText(testLine).width < maxWidth) {
+                    currentLine = testLine;
+                } else {
+                    lines.push(currentLine);
+                    currentLine = words[i];
+                }
+            }
+            lines.push(currentLine);
+
+            const totalHeight = (lines.length - 1) * lineHeight;
+            lines.forEach((line, idx) => {
+                ctx.fillText(line, x, y - totalHeight / 2 + idx * lineHeight);
+            });
+        }
+
+        function drawDigitalHammer() {
+            ctx.save();
+            ctx.translate(hammer.x, hammer.y);
+
+            // Animasi ayunan tukul
+            let currentAngle = -0.35;
+            if (hammer.swingTimer > 0) {
+                const progress = 1 - (hammer.swingTimer / 0.22);
+                // Ayun ke hadapan (-1.35 rad) dan kembali
+                currentAngle = -0.35 - Math.sin(progress * Math.PI) * 1.15;
+            }
+            ctx.rotate(currentAngle);
+
+            const scale = width < 640 ? 0.85 : 1.08;
+            ctx.scale(scale, scale);
+
+            // Cahaya Aura di sekeliling tukul supaya sangat jelas di atas webcam
+            ctx.shadowColor = 'rgba(251, 191, 36, 0.65)';
+            ctx.shadowBlur = 22;
+
+            // Pemegang Tukul Kayu
+            const handleGrad = ctx.createLinearGradient(-10, 0, 10, 0);
+            handleGrad.addColorStop(0, '#92400e');
+            handleGrad.addColorStop(0.5, '#d97706');
+            handleGrad.addColorStop(1, '#78350f');
+
+            ctx.fillStyle = handleGrad;
+            drawRoundedRect(ctx, -11, -15, 22, 115, 10);
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = '#fef3c7';
+            ctx.stroke();
+
+            // Jalur Cengkaman Pemegang
+            ctx.fillStyle = '#451a03';
+            ctx.fillRect(-10, 55, 20, 8);
+            ctx.fillRect(-10, 72, 20, 8);
+
+            // Kepala Tukul Besar (Gaya Arked Emas & Zamrud)
+            const headGrad = ctx.createLinearGradient(-58, -55, 58, -5);
+            headGrad.addColorStop(0, '#f59e0b');
+            headGrad.addColorStop(0.5, '#fde047');
+            headGrad.addColorStop(1, '#d97706');
+
+            ctx.fillStyle = headGrad;
+            drawRoundedRect(ctx, -56, -58, 112, 54, 16);
+            ctx.fill();
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = '#ffffff';
+            ctx.stroke();
+
+            // Penutup Hentakan Kiri & Kanan (Bantalan Hijau Zamrud)
+            ctx.fillStyle = '#10b981';
+            drawRoundedRect(ctx, -66, -54, 18, 46, 8);
+            ctx.fill();
+            ctx.stroke();
+
+            drawRoundedRect(ctx, 48, -54, 18, 46, 8);
+            ctx.fill();
+            ctx.stroke();
+
+            // Lambang Bintang di Tengah Kepala Tukul
+            ctx.fillStyle = '#92400e';
+            ctx.font = 'bold 26px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('★', 0, -30);
+
+            ctx.restore();
+        }
+
+        function drawParticlesAndText() {
+            // Lukis zarah bintang/percikan
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.35; // graviti
+                p.alpha -= 0.025;
+
+                if (p.alpha <= 0) {
+                    particles.splice(i, 1);
+                    continue;
+                }
+
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // Lukis teks terapung (+100, SALAH, dll)
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                const ft = floatingTexts[i];
+                ft.y += ft.vy;
+                ft.alpha -= 0.018;
+                ft.scale = Math.min(1.15, ft.scale + 0.06);
+
+                if (ft.alpha <= 0) {
+                    floatingTexts.splice(i, 1);
+                    continue;
+                }
+
+                ctx.save();
+                ctx.globalAlpha = ft.alpha;
+                ctx.translate(ft.x, ft.y);
+                ctx.scale(ft.scale, ft.scale);
+                ctx.font = '800 30px "Fredoka", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.lineWidth = 6;
+                ctx.strokeStyle = '#0f172a';
+                ctx.strokeText(ft.text, 0, 0);
+                ctx.fillStyle = ft.color;
+                ctx.fillText(ft.text, 0, 0);
+                ctx.restore();
+            }
+        }
+
+        /**
+         * ============================================================================
+         * 9. GELUNG ANIMASI UTAMA (GAME LOOP)
+         * ============================================================================
+         */
+        let lastTime = performance.now();
+
+        function gameLoop(now) {
+            const dt = Math.min(0.05, (now - lastTime) / 1000);
+            lastTime = now;
+
+            ctx.clearRect(0, 0, width, height);
+
+            // Gegaran skrin ringan semasa hentakan
+            ctx.save();
+            if (screenShake > 0) {
+                const sx = (Math.random() - 0.5) * screenShake;
+                const sy = (Math.random() - 0.5) * screenShake;
+                ctx.translate(sx, sy);
+                screenShake *= 0.82;
+                if (screenShake < 0.5) screenShake = 0;
+            }
+
+            if (gameState === 'PLAYING') {
+                // Kemas kini pemasa tukul
+                if (hammer.swingTimer > 0) hammer.swingTimer = Math.max(0, hammer.swingTimer - dt);
+                if (hammer.hitCooldown > 0) hammer.hitCooldown = Math.max(0, hammer.hitCooldown - dt);
+
+                // Kemas kini animasi sasaran keluar/masuk lubang
+                let anyActive = false;
+                holes.forEach(h => {
+                    if (!h.active) return;
+                    anyActive = true;
+
+                    if (h.state === 'RISING') {
+                        h.popProgress += dt * 3.6;
+                        if (h.popProgress >= 1) {
+                            h.popProgress = 1;
+                            h.state = 'STAYING';
+                        }
+                    } else if (h.state === 'STAYING') {
+                        h.stayTimer -= dt;
+                        if (h.stayTimer <= 0) {
+                            h.state = 'FALLING';
+                        }
+                    } else if (h.state === 'FALLING') {
+                        h.popProgress -= dt * 3.2;
+                        if (h.popProgress <= 0) {
+                            h.popProgress = 0;
+                            h.state = 'HIDDEN';
+                            h.active = false;
+                        }
+                    } else if (h.state === 'WHACKED') {
+                        h.popProgress -= dt * 4.5;
+                        if (h.popProgress <= 0) {
+                            h.popProgress = 0;
+                            h.state = 'HIDDEN';
+                            h.active = false;
+                        }
+                    }
+                });
+
+                // Jika semua sasaran sudah masuk semula tanpa dijawab, munculkan gelombang baharu
+                if (!anyActive && currentQuestion) {
+                    spawnWaveForCurrentQuestion();
+                }
+
+                // Lukis semua lubang dan sasaran
+                holes.forEach(drawHoleAndTarget);
+
+                // Lukis kesan zarah & teks
+                drawParticlesAndText();
+
+                // Lukis Tukul Digital pada posisi tapak tangan / tetikus
+                drawDigitalHammer();
+            }
+
+            ctx.restore();
+            requestAnimationFrame(gameLoop);
+        }
+
+        requestAnimationFrame(gameLoop);
+
+        /**
+         * ============================================================================
+         * 10. KAWALAN UI, PEMASA 60 SAAT & SKRIN SEMAKAN JAWAPAN
+         * ============================================================================
+         */
+        function updateHUD() {
+            document.getElementById('score-text').textContent = score;
+            document.getElementById('combo-text').textContent = `x${combo}`;
+
+            const comboBox = document.getElementById('combo-box');
+            comboBox.style.transform = 'scale(1.16)';
+            setTimeout(() => { comboBox.style.transform = 'scale(1)'; }, 140);
+        }
+
+        function startGame() {
+            sfx.init();
+            initMediaPipeHands();
+
+            // Reset semua pembolehubah
+            score = 0;
+            combo = 1;
+            maxCombo = 1;
+            correctCount = 0;
+            wrongCount = 0;
+            timeLeft = GAME_DURATION;
+            sessionHistory = [];
+            particles = [];
+            floatingTexts = [];
+
+            shuffledQuestions = shuffleArray(QUESTION_BANK);
+            currentQuestionIndex = 0;
+
+            updateHUD();
+            const timerBox = document.getElementById('timer-box');
+            const timerText = document.getElementById('timer-text');
+            timerBox.classList.remove('timer-danger');
+            timerText.textContent = `${timeLeft}s`;
+
+            // Tukar paparan skrin
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('end-screen').classList.add('hidden');
+            document.getElementById('end-screen').classList.remove('flex');
+            document.getElementById('hud-layer').classList.remove('hidden');
+            document.getElementById('hud-layer').classList.add('flex');
+
+            gameState = 'PLAYING';
+            layoutHoles();
+            loadNextQuestion();
+
+            // Mulakan Pemasa Undur 60 Saat
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if (gameState !== 'PLAYING') return;
+                timeLeft--;
+                timerText.textContent = `${timeLeft}s`;
+
+                if (timeLeft <= 10 && timeLeft > 0) {
+                    timerBox.classList.add('timer-danger');
+                    sfx.playTick();
+                }
+
+                if (timeLeft <= 0) {
+                    endGame();
+                }
+            }, 1000);
+        }
+
+        function endGame() {
+            gameState = 'END';
+            clearInterval(timerInterval);
+            sfx.playGameOver();
+
+            document.getElementById('hud-layer').classList.add('hidden');
+            document.getElementById('hud-layer').classList.remove('flex');
+
+            // Tentukan Pangkat / Gelaran Pemain berdasarkan markah
+            let rank = "🌱 Perantis Pasar";
+            if (score >= 1500) {
+                rank = "👑 Saudagar Agung Berhemah";
+            } else if (score >= 900) {
+                rank = "🏆 Saudagar Jujur & Amanah";
+            } else if (score >= 400) {
+                rank = "⭐ Pedagang Beradab";
+            }
+
+            document.getElementById('rank-title').textContent = rank;
+            document.getElementById('final-score').textContent = score;
+            document.getElementById('final-combo').textContent = `x${maxCombo}`;
+            document.getElementById('final-correct').textContent = correctCount;
+            document.getElementById('final-wrong').textContent = wrongCount;
+
+            renderReviewList();
+
+            const endScreen = document.getElementById('end-screen');
+            endScreen.classList.remove('hidden');
+            endScreen.classList.add('flex');
+        }
+
+        function renderReviewList() {
+            const container = document.getElementById('review-list');
+            container.innerHTML = '';
+
+            if (sessionHistory.length === 0) {
+                container.innerHTML = `
+                    <div class="bg-slate-800/70 border border-slate-700 rounded-2xl p-4 text-center text-slate-300 text-sm">
+                        Tiada soalan sempat dijawab pada pusingan ini. Cuba ketuk sasaran jawapan pada pusingan seterusnya!
+                    </div>
+                `;
+                return;
+            }
+
+            sessionHistory.forEach((item, index) => {
+                const borderClass = item.isCorrect ? 'border-emerald-500/50 bg-emerald-950/25' : 'border-rose-500/50 bg-rose-950/25';
+                const badgeHTML = item.isCorrect
+                    ? `<span class="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold px-2.5 py-0.5 rounded-full">✅ Betul</span>`
+                    : `<span class="bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs font-bold px-2.5 py-0.5 rounded-full">❌ Kurang Tepat</span>`;
+
+                const card = document.createElement('div');
+                card.className = `border-2 ${borderClass} rounded-2xl p-3.5 sm:p-4 transition-all`;
+                card.innerHTML = `
+                    <div class="flex items-start justify-between gap-2 mb-1.5">
+                        <span class="font-bold text-slate-100 text-sm sm:text-base">${index + 1}. ${item.question}</span>
+                        <div class="shrink-0">${badgeHTML}</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs sm:text-sm mb-2">
+                        <div class="text-slate-300">
+                            Jawapan Anda: <strong class="${item.isCorrect ? 'text-emerald-300' : 'text-rose-300'}">${item.playerAnswer}</strong>
+                        </div>
+                        <div class="text-slate-300">
+                            Jawapan Sebenar: <strong class="text-amber-300">${item.correctAnswer}</strong>
+                        </div>
+                    </div>
+                    <div class="bg-slate-900/75 border border-slate-700/70 rounded-xl px-3 py-2 text-xs text-amber-100/90 flex items-start gap-2">
+                        <span>💡</span>
+                        <span>${item.note}</span>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // Event Listeners Butang UI
+        document.getElementById('btn-start').addEventListener('click', startGame);
+        document.getElementById('btn-restart').addEventListener('click', startGame);
+        document.getElementById('btn-mute').addEventListener('click', (e) => {
+            const isMuted = sfx.toggleMute();
+            e.currentTarget.textContent = isMuted ? '🔇' : '🔊';
+        });
+    </script>
+</body>
+</html>
